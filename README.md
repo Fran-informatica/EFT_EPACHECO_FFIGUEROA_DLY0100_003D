@@ -20,6 +20,9 @@ El sistema recibe una imagen de una prenda y una reseña de texto, y predice una
 | `EFT_Esteban_y_Francisco_003D_Fusion_Multimodal_v1.ipynb` | Parte 3: fusión de ambas representaciones, comparación de técnicas, evaluación en test y demostración del sistema completo |
 | `train-images-idx3-ubyte`, `train-labels-idx1-ubyte`, `t10k-images-idx3-ubyte`, `t10k-labels-idx1-ubyte` | Fashion-MNIST en formato IDX: 60.000 imágenes de entrenamiento y 10.000 de prueba, de 28 × 28 píxeles |
 | `IMDB Dataset.csv` | 50.000 reseñas de IMDB con su sentimiento (25.000 positivas y 25.000 negativas) |
+| `cnn_final.pt`, `texto_final.pt` | Modelos finales de imagen (CNN) y de texto (GRU), con su configuración, pesos e índices de la partición; los carga el notebook de fusión |
+| `resultados_cnn_guardados.json`, `resultados_texto_guardados.json`, `resultados_fusion_guardados.json` | Métricas de cada corrida ya entrenada, por configuración y semilla |
+| `corridas_cnn/`, `corridas_texto/`, `corridas_fusion/` | Pesos e historias de las corridas que necesitan el modelo o sus curvas (8, 11 y 8 archivos `.pt`) |
 
 ## Cómo ejecutar
 
@@ -34,12 +37,12 @@ Los notebooks se ejecutan en **Google Colab con GPU T4** (*Entorno de ejecución
 **Entre un paso y otro:**
 
 - **Descargar los archivos** que produce cada notebook antes de cerrar la sesión de Colab: quedan en el servidor y se pierden al cerrarla.
-- **Antes del notebook de fusión,** subir `cnn_final.pt` (está dentro de `respaldo_eft_cnn.zip`) y `texto_final.pt` a la raíz del repositorio o a la carpeta de trabajo de Colab. La fusión carga ambos modelos con `weights_only=True`.
+- **Antes del notebook de fusión:** `cnn_final.pt` y `texto_final.pt` ya están en la raíz del repositorio. Solo si se vuelve a entrenar la CNN o el modelo de texto hay que reemplazarlos: `cnn_final.pt` está dentro de `respaldo_eft_cnn.zip` y `texto_final.pt` se descarga junto al respaldo de texto. La fusión carga ambos modelos con `weights_only=True`.
 - **Para no repetir entrenamientos:**
   - Cada notebook descarga solo, al terminar cada celda que entrena, el archivo `resultados_*_guardados.json`. También descarga los `.pt` de las corridas que necesitan el modelo o sus curvas: `corrida_cnn_*.pt`, `corrida_texto_*.pt` o `corrida_fusion_*.pt`.
   - El JSON va en la raíz del repositorio, sin el número que agrega el navegador a las copias repetidas, por ejemplo `(1)`. Los `.pt` van en `corridas_cnn/`, `corridas_texto/` o `corridas_fusion/`, o en la raíz.
   - Cada notebook reutiliza las corridas cuya configuración, semilla, épocas y paciencia coinciden exactamente.
-  - Los `.pt` de texto pesan unos 20 MB cada uno, y en total suman unos 300 MB entre los tres notebooks. Conviene subirlos con git en vez de la web, que limita a 25 MB por archivo.
+  - Los `.pt` de texto pesan unos 20 MB cada uno; entre los tres notebooks suman unos 230 MB (207 MB de texto, 13 MB de imagen y 12 MB de fusión). Conviene subirlos con git en vez de la web, que limita a 25 MB por archivo.
 - **Si una sesión se corta,** cada corrida nueva queda impresa en la salida de su celda como una línea `CORRIDA_GUARDADA {...}`, a partir de la cual se puede reconstruir el JSON.
 
 ## Metodología común
@@ -60,6 +63,18 @@ Los notebooks se ejecutan en **Google Colab con GPU T4** (*Entorno de ejecución
   - Vocabulario con las palabras que aparecen al menos 5 veces en entrenamiento y *embedding* de 128 valores.
 - **Representaciones:** los modelos de imagen y de texto entregan a la fusión un vector de 128 valores cada uno (su última capa oculta) y se usan congelados.
 
+## Resultados
+
+| Parte | Modelo final | F1 macro en test | Referencia |
+|---|---|---|---|
+| Imagen | CNN de 2 bloques convolucionales (32 y 64 filtros, kernel 3), capa densa de 128, ReLU, píxeles en [0, 1], suavizado de etiquetas, Adam con tasa 0,001 y lote 128 | 0,9256 | Con 5 semillas, +0,41 pp sobre la configuración base (rango de error de 0,34 pp) |
+| Texto | GRU de 128 unidades y una capa, *dropout* 0,25, tasa 0,001 y lote 64 | 0,8990 | Transformer final: 0,8889; TF-IDF + regresión logística: 0,8992 |
+| Fusión | Concatenación + MLP de 2 capas de 256, sin estandarizar, suavizado de etiquetas, lote 128, *dropout* 0,5 y *weight decay* 0,0001 | 0,8306 | Fusión tardía (combinación de las predicciones de cada rama): 0,8318 |
+
+- En texto, la GRU y el Transformer empatan en validación con 5 semillas (0,8914 frente a 0,8907); pasa a la fusión la GRU, que es unas 3 veces más rápida por época.
+- En la fusión, la concatenación y la atención entre modalidades empatan en validación; se eligió la concatenación porque la atención vuelve inestable el F1 entre épocas y tiene 5,8 veces más parámetros.
+- Como los pares imagen–reseña se forman al azar, prenda y sentimiento son independientes: la fusión tardía es la referencia más exigente, y el clasificador fusionado empata con ella. Los errores de sentimiento (9,6 % de los pares de test) superan a los de prenda (6,6 %).
+
 ## Fuentes de los datos
 
 - **Fashion-MNIST:** Xiao, H., Rasul, K. y Vollgraf, R. (2017). *Fashion-MNIST: a Novel Image Dataset for Benchmarking Machine Learning Algorithms*. arXiv:1708.07747. Repositorio oficial: https://github.com/zalandoresearch/fashion-mnist (licencia MIT).
@@ -67,4 +82,4 @@ Los notebooks se ejecutan en **Google Colab con GPU T4** (*Entorno de ejecución
 
 ## Herramientas
 
-Google Colab (GPU NVIDIA T4), Visual Studio Code con la extensión de Google Colab, PyTorch, NumPy, Pandas, scikit-learn y Plotly. Como asistente de IA se usó Claude Opus 5.5 (Anthropic) para estructurar los notebooks y apoyar el código y la redacción; los resultados, las decisiones y las interpretaciones se revisaron con las salidas de los propios notebooks. El detalle está en el anexo de herramientas de cada notebook.
+Google Colab con GPU NVIDIA T4 (ejecución de los notebooks, desde el navegador), Visual Studio Code (edición de los notebooks y de los scripts que los generan), PyTorch, NumPy, Pandas, scikit-learn y Plotly. Como asistente de IA se usó Claude Opus 5.5 (Anthropic) para estructurar los notebooks y apoyar el código y la redacción; los resultados, las decisiones y las interpretaciones se revisaron con las salidas de los propios notebooks. El detalle está en el anexo de herramientas de cada notebook.
